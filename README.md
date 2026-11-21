@@ -81,7 +81,7 @@ A file sharing experiment which allows you to send encrypted files to other user
 
 ## Requirements
 
-- [Node.js 16.x](https://nodejs.org/)
+- [Node.js 26.x](https://nodejs.org/)
 - [Redis server](https://redis.io/) (optional for development)
 - [AWS S3](https://aws.amazon.com/s3/) or compatible service (optional)
 
@@ -102,20 +102,28 @@ Then, browse to http://localhost:8080
 
 ## Commands
 
-| Command          | Description |
-|------------------|-------------|
-| `npm run format` | Formats the frontend and server code using **prettier**.
-| `npm run lint`   | Lints the CSS and JavaScript code.
-| `npm test`       | Runs the suite of mocha tests.
-| `npm start`      | Runs the server in development configuration.
-| `npm run build`  | Builds the production assets.
-| `npm run prod`   | Runs the server in production configuration.
+The code is written in TypeScript (`strict`). Webpack + Babel build the
+frontend, esbuild bundles the server into a single file (`dist-server/server.js`)
+that runs without `node_modules`.
+
+| Command                 | Description |
+|-------------------------|-------------|
+| `npm run format`        | Formats the code using **prettier**.
+| `npm run lint`          | stylelint, eslint, `prettier --check` and `tsc` (type checking).
+| `npm run typecheck`     | Type checks the whole project with `tsc`.
+| `npm test`              | Runs the backend (mocha) and frontend (headless Chrome) tests.
+| `npm run test:backend`  | Runs the backend tests only.
+| `npm run test:frontend` | Runs the frontend tests, set `PUPPETEER_EXECUTABLE_PATH` to Chrome/Chromium.
+| `npm run test:smoke`    | End to end check of a running server (`SEND_URL`, default `http://localhost:1443`).
+| `npm start`             | Runs the server in development configuration.
+| `npm run build`         | Builds the frontend (`dist/`) and the server bundle (`dist-server/`).
+| `npm run prod`          | Runs the built server in production configuration.
 
 ---
 
 ## Configuration
 
-The server is configured with environment variables. See [server/config.js](server/config.js) for all options and [docs/docker.md](docs/docker.md) for examples.
+The server is configured with environment variables. See [server/config.ts](server/config.ts) for all options and [docs/docker.md](docs/docker.md) for examples.
 
 ---
 
@@ -167,6 +175,6 @@ located in the `android/app/src/main/assets` directory.
 
 [Mozilla Public License Version 2.0](LICENSE)
 
-[qrcode.js](https://github.com/kazuhikoarase/qrcode-generator) licensed under MIT
+[qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) licensed under MIT
 
 ---
