@@ -1,8 +1,17 @@
+.git
+.github
+.gitlab-ci.yml
 .circleci
 .nyc_output
 .vscode
 .DS_Store
 coverage
+dist
+dist-server
 docs
 firefox
 node_modules
+android/app/build
+*.log
+Dockerfile
+compose.yml
