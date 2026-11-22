@@ -6,15 +6,21 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+  # Weekly rebuild of master: picks up the security fixes of the node/Debian
+  # base image, whose tag does not change, and republishes :latest.
+  schedule:
+    - cron: '23 4 * * 1'
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # never cancel a run that publishes the image
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/') }}
 
 env:
+  # renovate: datasource=docker depName=node
   NODE_VERSION: 26.13.1
 
 jobs:
@@ -64,6 +70,9 @@ jobs:
             suffix: ''
           - target: slim
             suffix: '-slim'
+    env:
+      # push on master (merges, Renovate, weekly rebuild, manual run) and tags
+      PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) }}
     services:
       redis:
         image: redis:7-alpine
@@ -85,7 +94,7 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
 
       - name: Build
         uses: docker/build-push-action@v6
@@ -124,13 +133,13 @@ jobs:
         run: docker logs send || true
 
       - name: Push
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+        if: env.PUBLISH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+      - if: env.PUBLISH == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .

@@ -12,6 +12,7 @@
 #   docker build -t send:slim --target slim .   # official node slim base
 ##
 
+# renovate: datasource=docker depName=node
 ARG NODE_VERSION=26.13.1
 ARG NODE_IMAGE=node:${NODE_VERSION}-trixie-slim
 
