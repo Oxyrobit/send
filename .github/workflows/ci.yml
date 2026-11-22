@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+  # Weekly rebuild of master: picks up the security fixes of the node/Debian
+  # base image, whose tag does not change, and republishes :latest.
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # never cancel a run that publishes the image
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # renovate: datasource=docker depName=node
+  NODE_VERSION: 26.13.1
+
+jobs:
+  lint:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # stylelint, eslint, prettier --check and tsc
+      - run: npm run lint
+      - run: npm audit --omit=dev --audit-level=high
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Backend tests
+        run: npm run test:coverage
+      - name: Frontend tests (headless Chrome)
+        run: npm run test:frontend
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+
+  image:
+    name: Image (${{ matrix.target }})
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: runtime
+            suffix: ''
+          - target: slim
+            suffix: '-slim'
+    env:
+      # push on master (merges, Renovate, weekly rebuild, manual run) and tags
+      PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) }}
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=false
+            suffix=${{ matrix.suffix }},onlatest=true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          load: true
+          tags: send:ci
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+
+      - name: Smoke test (read-only, no capabilities, non-root)
+        run: |
+          docker run -d --name send --network host \
+            --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges \
+            -e REDIS_HOST=127.0.0.1 -e BASE_URL=http://localhost:1443 \
+            send:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:1443/__lbheartbeat__ >/dev/null && break
+            sleep 1
+          done
+          docker run --rm --network host -v "$PWD/test/smoke:/smoke:ro" \
+            -e SEND_URL=http://127.0.0.1:1443 \
+            node:${{ env.NODE_VERSION }}-trixie-slim node /smoke/smoke.mts
+          test "$(docker inspect -f '{{.Config.User}}' send:ci)" != ""
+          docker stop -t 15 send
+          test "$(docker inspect -f '{{.State.ExitCode}}' send)" = 0
+          docker image ls send:ci --format 'size: {{.Size}}'
+
+      - name: Logs
+        if: failure()
+        run: docker logs send || true
+
+      - name: Push
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.target }}

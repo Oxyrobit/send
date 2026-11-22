@@ -16,7 +16,7 @@ function kv(f) {
   return `"${f}": require('../assets/${f}')`;
 }
 
-module.exports = function() {
+module.exports = function generateAssetMap() {
   const files = fs.readdirSync(path.join(__dirname, '..', 'assets'));
   const code = `module.exports = {
     ${files.map(kv).join(',\n')}

@@ -1,25 +1,42 @@
 ## Docker Quickstart
 
-Use `registry.gitlab.com/timvisee/send:latest` from [`timvisee/send`'s Gitlab image registry](https://gitlab.com/timvisee/send/container_registry) for the latest Docker image.
+The image is built in two stages: a `build` stage compiles the frontend and
+bundles the server with esbuild into a single file, the runtime stage only gets
+the result. There is no `node_modules`, no npm and no shell in the runtime.
+
+Two runtimes are available:
+
+| Target              | Base                                  | Size    |
+|---------------------|---------------------------------------|---------|
+| `runtime` (default) | `FROM scratch`: node + its libraries  | ~140 MB |
+| `slim`              | official `node:26-trixie-slim`        | ~270 MB |
 
 ```bash
-docker pull registry.gitlab.com/timvisee/send:latest
+docker build -t send .                      # FROM scratch
+docker build -t send:slim --target slim .   # node slim
 
-# example quickstart (point REDIS_HOST to an already-running redis server)
-docker run -v $PWD/uploads:/uploads -p 1443:1443 \
-    -e 'DETECT_BASE_URL=true' \
-    -e 'REDIS_HOST=localhost' \
-    -e 'FILE_DIR=/uploads' \
-    registry.gitlab.com/timvisee/send:latest
+# point REDIS_HOST to a running redis server
+docker run -p 1443:1443 \
+    --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
+    -v send-uploads:/app/uploads \
+    -e 'BASE_URL=https://send.example.com' \
+    -e 'REDIS_HOST=redis' \
+    send
 ```
 
-Or clone this repo and run `docker build -t send:latest .` to build an image locally.
+Both run as an unprivileged user, only write to `/app/uploads` (the default
+`FILE_DIR`) and `/tmp`, so the root filesystem can be read-only. They stop
+cleanly on `SIGTERM` and have a `HEALTHCHECK` on `/__lbheartbeat__`.
 
-*Note: for Docker Compose, see: https://github.com/timvisee/send-docker-compose*
+`docker compose up -d` starts Send and Redis with that hardening, see
+[compose.yml](../compose.yml).
+
+The CI pushes `ghcr.io/<owner>/send:latest` (scratch) and
+`ghcr.io/<owner>/send:latest-slim` from the default branch.
 
 ## Environment Variables
 
-All the available config options and their defaults can be found here: https://github.com/timvisee/send/blob/master/server/config.js
+All the available config options and their defaults can be found here: ../server/config.ts
 
 Config options should be set as unquoted environment variables. Boolean options should be `true`/`false`, time/duration should be integers (seconds), and filesize values should be integers (bytes).
 
@@ -32,11 +49,13 @@ Config options expecting array values (e.g. `EXPIRE_TIMES_SECONDS`, `DOWNLOAD_CO
 | `BASE_URL`       | The HTTPS URL where traffic will be served (e.g. `https://send.firefox.com`)
 | `DETECT_BASE_URL` | Autodetect the base URL using browser if `BASE_URL` is unset (defaults to `false`)
 | `PORT`           | Port the server will listen on (defaults to `1443`)
+| `TRUST_PROXY`    | Express `trust proxy`: `true` (default), `false`, a hop count or a list of proxy addresses
+| `FXA_REQUIRED`   | Only allow uploads from signed in Firefox Account users (defaults to `false`)
 | `NODE_ENV`       | Run in `development` mode (unsafe) or `production` mode (the default)
 | `SEND_FOOTER_DMCA_URL` | A URL to a contact page for DMCA requests (empty / not shown by default)
 | `SENTRY_CLIENT`, `SENTRY_DSN`  | Sentry Client ID and DSN for error tracking (optional, disabled by default)
 
-*Note: more options can be found here: https://github.com/timvisee/send/blob/master/server/config.js*
+*Note: more options can be found here: ../server/config.ts*
 
 #### Upload and Download Limits
 
@@ -53,7 +72,7 @@ Configure the limits for uploads and downloads. Long expiration times are risky 
 | `DEFAULT_DOWNLOADS` | Default download limit in UI (defaults to `1`)
 | `DEFAULT_EXPIRE_SECONDS` | Default expire time in UI (defaults to `86400`)
 
-*Note: more options can be found here: https://github.com/timvisee/send/blob/master/server/config.js*
+*Note: more options can be found here: ../server/config.ts*
 
 #### Storage Backend Options
 
@@ -76,7 +95,7 @@ Redis is used as the metadata database for the backend and is required no matter
 | `AWS_SECRET_ACCESS_KEY` | S3 secret access key ID (only set if using S3 for storage)
 | `GCS_BUCKET` | Google Cloud Storage bucket (only set if using GCP for storage)
 
-*Note: more options can be found here: https://github.com/timvisee/send/blob/master/server/config.js*
+*Note: more options can be found here: ../server/config.ts*
 
 ## Branding
 

@@ -4,7 +4,7 @@ plugins:
   - stylelint-no-unsupported-browser-features
 
 rules:
-  plugin/no-unsupported-browser-features: [true, {severity: warning}]
+  plugin/no-unsupported-browser-features: [true, { severity: warning }]
 
   color-hex-case: lower
   declaration-colon-newline-after: null

@@ -8,13 +8,20 @@ const ExtractTextPlugin = require('extract-text-webpack-plugin');
 
 // Fix for node 18+
 // See: <https://stackoverflow.com/a/78005686/1000145>
-const crypto = require('crypto');
-const crypto_orig_createHash = crypto.createHash;
-crypto.createHash = algorithm =>
-  crypto_orig_createHash(algorithm == 'md4' ? 'sha256' : algorithm);
+const nodeCrypto = require('crypto');
+const cryptoOrigCreateHash = nodeCrypto.createHash;
+nodeCrypto.createHash = algorithm =>
+  cryptoOrigCreateHash(algorithm === 'md4' ? 'sha256' : algorithm);
+
+const typescript = [
+  '@babel/preset-typescript',
+  // only strip types, tsc does the type checking (npm run typecheck)
+  { onlyRemoveTypeImports: false, allowDeclareFields: true }
+];
 
 const webJsOptions = {
   babelrc: false,
+  configFile: false,
   presets: [
     [
       '@babel/preset-env',
@@ -23,7 +30,8 @@ const webJsOptions = {
         useBuiltIns: 'entry',
         corejs: 3
       }
-    ]
+    ],
+    typescript
   ],
   plugins: [
     '@babel/plugin-syntax-dynamic-import',
@@ -32,11 +40,23 @@ const webJsOptions = {
   ]
 };
 
+const workerJsOptions = {
+  babelrc: false,
+  configFile: false,
+  presets: [['@babel/preset-env', { bugfixes: true }], typescript],
+  plugins: [['@babel/plugin-proposal-class-properties', { loose: false }]]
+};
+
+const resolve = {
+  extensions: ['.ts', '.mjs', '.js', '.json']
+};
+
 const serviceWorker = {
   target: 'webworker',
   entry: {
-    serviceWorker: './app/serviceWorker.js'
+    serviceWorker: './app/serviceWorker.ts'
   },
+  resolve,
   output: {
     filename: '[name].js',
     path: path.resolve(__dirname, 'dist'),
@@ -45,6 +65,15 @@ const serviceWorker = {
   devtool: 'source-map',
   module: {
     rules: [
+      {
+        test: /\.ts$/,
+        include: [
+          path.resolve(__dirname, 'app'),
+          path.resolve(__dirname, 'common')
+        ],
+        loader: 'babel-loader',
+        options: workerJsOptions
+      },
       {
         test: /\.(png|jpg)$/,
         loader: 'file-loader',
@@ -97,7 +126,7 @@ const serviceWorker = {
 const web = {
   target: 'web',
   entry: {
-    app: ['./app/main.js']
+    app: ['./app/main.ts']
     // android: ['./android/android.js'],
     // ios: ['./ios/ios.js']
   },
@@ -106,16 +135,19 @@ const web = {
     filename: '[name].[contenthash:8].js',
     path: path.resolve(__dirname, 'dist')
   },
+  resolve,
   module: {
     rules: [
       {
-        test: /\.js$/,
+        test: /\.(js|ts)$/,
         oneOf: [
           {
             loader: 'babel-loader',
             include: [
               path.resolve(__dirname, 'app'),
               path.resolve(__dirname, 'common'),
+              path.resolve(__dirname, 'server'),
+              path.resolve(__dirname, 'test/frontend'),
               // some dependencies need to get re-babeled because we
               // have different targets than their default configs
               path.resolve(
@@ -236,8 +268,7 @@ const web = {
   ],
   devtool: 'source-map',
   devServer: {
-    before:
-      process.env.NODE_ENV === 'development' && require('./server/bin/dev'),
+    before: process.env.NODE_ENV === 'development' && devServerHook,
     compress: true,
     hot: false,
     host: '0.0.0.0',
@@ -251,14 +282,17 @@ const web = {
   }
 };
 
+// The dev server runs the API from the TypeScript sources
+function devServerHook(app, server) {
+  require('tsx/cjs/api').register();
+  return require('./server/bin/dev').default(app, server);
+}
+
 module.exports = (env, argv) => {
   const mode = argv.mode || 'production';
-  // eslint-disable-next-line no-console
   console.error(`mode: ${mode}`);
   process.env.NODE_ENV = web.mode = serviceWorker.mode = mode;
   if (mode === 'development') {
-    // istanbul instruments the source for code coverage
-    webJsOptions.plugins.push('istanbul');
     web.entry.tests = ['./test/frontend/index.js'];
   }
   return [web, serviceWorker];

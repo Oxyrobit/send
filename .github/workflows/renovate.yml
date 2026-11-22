@@ -1,0 +1,48 @@
+name: Renovate
+
+# Self-hosted Renovate: opens the update PRs against master and merges them
+# itself on a later run once the CI workflow is green (automerge, see
+# renovate.json). The merge into master publishes the image (CI workflow),
+# and the production host pulls it on its own (ansible role `send`).
+
+on:
+  schedule:
+    # Every 3 hours: one run creates/rebases the PR, the next one merges it
+    # once CI is green.
+    - cron: '41 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: Renovate log level
+        type: choice
+        options: [info, debug]
+        default: info
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Renovate
+        uses: renovatebot/github-action@v46.3.14
+        with:
+          # PAT (repo + workflow scopes): the default GITHUB_TOKEN would
+          # trigger neither the CI on the PRs nor the publish on merge.
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_REQUIRE_CONFIG: required
+          # this repository is a fork (of timvisee/send), Renovate skips forks
+          # unless told otherwise
+          RENOVATE_FORK_PROCESSING: enabled
+          RENOVATE_GIT_AUTHOR: 'Renovate Bot <15943467+Oxyrobit@users.noreply.github.com>'
