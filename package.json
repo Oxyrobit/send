@@ -67,7 +67,7 @@
     "@types/webpack": "^4.41.40",
     "@types/webpack-dev-middleware": "^3.7.5",
     "asmcrypto.js": "^0.22.0",
-    "babel-loader": "^8.2.4",
+    "babel-loader": "^10.0.0",
     "base64-js": "^1.5.1",
     "c8": "^12.0.0",
     "content-disposition": "^0.5.4",
